@@ -34,13 +34,42 @@ class EDSR(nn.Module):
         # define head module
         m_head = [conv(args.n_colors, n_feats, kernel_size)]
 
-        # define body module
-        m_body = [
-            common.ResBlock(
+        # --- START: Modified body for GSE Ablation ---
+        m_body = []
+        for i in range(n_resblocks):
+            # 1. Create the standard ResBlock
+            resblock = common.ResBlock(
                 conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
-            ) for _ in range(n_resblocks)
-        ]
-        m_body.append(conv(n_feats, n_feats, kernel_size))
+            )
+
+            # 2. Check if we should wrap it with GSE
+            if args.use_gse and (i % args.gse_freq == 0):
+                # YES. Wrap it and pass the controls.
+                gse_wrapper = common.GSEWrapper(
+                    resblock, 
+                    median=args.gse_median, 
+                    scale_factor=args.gse_scale_factor
+                )
+                m_body.append(gse_wrapper)
+            else:
+                # NO. Just add the standard ResBlock.
+                m_body.append(resblock)
+
+        # 3. Create the final conv layer
+        last_conv = conv(n_feats, n_feats, kernel_size)
+
+        # 4. Conditionally wrap the *last* layer
+        # We check if the *index* of this layer (n_resblocks) matches the freq
+        if args.use_gse and (n_resblocks % args.gse_freq == 0):
+             gse_wrapper = common.GSEWrapper(
+                last_conv, 
+                median=args.gse_median, 
+                scale_factor=args.gse_scale_factor
+            )
+             m_body.append(gse_wrapper)
+        else:
+            m_body.append(last_conv)
+        # --- END: Modified body for GSE Ablation ---
 
         # define tail module
         m_tail = [
@@ -80,6 +109,5 @@ class EDSR(nn.Module):
                                            .format(name, own_state[name].size(), param.size()))
             elif strict:
                 if name.find('tail') == -1:
-                    raise KeyError('unexpected key "{}" in state_dict'
+                    raise KeyError('unexpected key \"{}\" in state_dict'
                                    .format(name))
-
