@@ -1,4 +1,3 @@
-%%writefile /content/EDSR-PyTorch/src/utility.py
 import os
 import math
 import time
