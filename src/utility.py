@@ -1,3 +1,4 @@
+%%writefile /content/EDSR-PyTorch/src/utility.py
 import os
 import math
 import time
@@ -53,19 +54,41 @@ class checkpoint():
         self.args = args
         self.ok = True
         self.log = torch.Tensor()
+        
+        # --- START: Patched Directory Logic ---
         now = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
 
-        if not args.load:
+        if args.test_only:
+            # For testing, 'save' specifies the output folder. 'load' is ignored for dir.
+            if not args.save:
+                args.save = now # Save to a timestamped folder if no name given
+            self.dir = os.path.join('..', 'experiment', args.save)
+            # In test_only mode, we never load an old PSNR log.
+            # self.log remains an empty tensor.
+            
+        elif args.load:
+            # For training, 'load' specifies resuming from an existing experiment
+            self.dir = os.path.join('..', 'experiment', args.load)
+            if os.path.exists(self.dir):
+                try:
+                    self.log = torch.load(self.get_path('psnr_log.pt'))
+                    print('Continue from epoch {}...'.format(len(self.log)))
+                except FileNotFoundError:
+                    # This happens if you resume from a checkpoint that never ran eval
+                    print(f"NOTE: 'psnr_log.pt' not found in {self.dir}. Creating a new one.")
+            else:
+                # If dir doesn't exist, start a new session
+                args.load = ''
+                if not args.save:
+                    args.save = now
+                self.dir = os.path.join('..', 'experiment', args.save)
+                
+        else:
+            # For starting a new training session
             if not args.save:
                 args.save = now
             self.dir = os.path.join('..', 'experiment', args.save)
-        else:
-            self.dir = os.path.join('..', 'experiment', args.load)
-            if os.path.exists(self.dir):
-                self.log = torch.load(self.get_path('psnr_log.pt'))
-                print('Continue from epoch {}...'.format(len(self.log)))
-            else:
-                args.load = ''
+        # --- END: Patched Directory Logic ---
 
         if args.reset:
             os.system('rm -rf ' + self.dir)
@@ -74,6 +97,7 @@ class checkpoint():
         os.makedirs(self.dir, exist_ok=True)
         os.makedirs(self.get_path('model'), exist_ok=True)
         for d in args.data_test:
+            # Fix for new result structure
             os.makedirs(self.get_path('results-{}'.format(d)), exist_ok=True)
 
         open_type = 'a' if os.path.exists(self.get_path('log.txt'))else 'w'
@@ -149,6 +173,7 @@ class checkpoint():
 
     def save_results(self, dataset, filename, save_list, scale):
         if self.args.save_results:
+            # This is the correct results path from the original code
             filename = self.get_path(
                 'results-{}'.format(dataset.dataset.name),
                 '{}_x{}_'.format(filename, scale)
@@ -236,4 +261,3 @@ def make_optimizer(args, target):
     optimizer = CustomOptimizer(trainable, **kwargs_optimizer)
     optimizer._register_scheduler(scheduler_class, **kwargs_scheduler)
     return optimizer
-
