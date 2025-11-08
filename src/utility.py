@@ -138,6 +138,10 @@ class checkpoint():
         self.log_file.close()
 
     def plot_psnr(self, epoch):
+        # This function might crash if self.log is empty (e.g. test_only)
+        if not self.log.numel():
+            return
+            
         axis = np.linspace(1, epoch, epoch)
         for idx_data, d in enumerate(self.args.data_test):
             label = 'SR on {}'.format(d)
@@ -222,15 +226,14 @@ def make_optimizer(args, target):
         kwargs_optimizer['momentum'] = args.momentum
     elif args.optimizer == 'ADAM':
         optimizer_class = optim.Adam
-        # --- START: FIX for args.betas ---
+        # --- FIX for args.betas ---
         kwargs_optimizer['betas'] = (args.beta1, args.beta2)
-        # --- END: FIX for args.betas ---
         kwargs_optimizer['eps'] = args.epsilon
     elif args.optimizer == 'RMSprop':
         optimizer_class = optim.RMSprop
         kwargs_optimizer['eps'] = args.epsilon
 
-    # --- START: FIX for args.decay ---
+    # --- FIX for args.decay ---
     # scheduler
     if args.decay_type == 'step':
         scheduler_class = lrs.StepLR
@@ -263,9 +266,19 @@ def make_optimizer(args, target):
             torch.save(self.state_dict(), self.get_dir(save_dir))
 
         def load(self, load_dir, epoch=1):
-            self.load_state_dict(torch.load(self.get_dir(load_dir)))
-            if epoch > 1:
-                for _ in range(epoch): self.scheduler.step()
+            # --- START: FIX for optimizer.pt ---
+            # This is the new fix. We check if the file exists
+            # before trying to load it.
+            optimizer_path = self.get_dir(load_dir)
+            if os.path.exists(optimizer_path):
+                self.load_state_dict(torch.load(optimizer_path))
+                if epoch > 1:
+                    for _ in range(epoch): self.scheduler.step()
+            else:
+                # This is safe to ignore in test_only mode
+                if not args.test_only:
+                     print(f"WARNING: Optimizer file not found at {optimizer_path}. Skipping load.")
+            # --- END: FIX for optimizer.pt ---
 
         def get_dir(self, dir_path):
             return os.path.join(dir_path, 'optimizer.pt')
@@ -287,3 +300,4 @@ def make_optimizer(args, target):
     optimizer._register_scheduler(scheduler_class, **kwargs_scheduler)
     return optimizer
 
+print("✅ Overwrote /content/EDSR-PyTorch/src/utility.py with ALL fixes.")
