@@ -94,9 +94,12 @@ class checkpoint():
             args.load = ''
 
         os.makedirs(self.dir, exist_ok=True)
-        os.makedirs(self.get_path('model'), exist_ok=True)
+        # We don't create model dir in test_only mode
+        if not args.test_only:
+            os.makedirs(self.get_path('model'), exist_ok=True)
+            
         for d in args.data_test:
-            # Fix for new result structure
+            # This is the correct results path from the original code
             os.makedirs(self.get_path('results-{}'.format(d)), exist_ok=True)
 
         open_type = 'a' if os.path.exists(self.get_path('log.txt'))else 'w'
@@ -219,16 +222,35 @@ def make_optimizer(args, target):
         kwargs_optimizer['momentum'] = args.momentum
     elif args.optimizer == 'ADAM':
         optimizer_class = optim.Adam
-        kwargs_optimizer['betas'] = args.betas
+        # --- START: FIX for args.betas ---
+        kwargs_optimizer['betas'] = (args.beta1, args.beta2)
+        # --- END: FIX for args.betas ---
         kwargs_optimizer['eps'] = args.epsilon
     elif args.optimizer == 'RMSprop':
         optimizer_class = optim.RMSprop
         kwargs_optimizer['eps'] = args.epsilon
 
+    # --- START: FIX for args.decay ---
     # scheduler
-    milestones = list(map(lambda x: int(x), args.decay.split('-')))
-    kwargs_scheduler = {'milestones': milestones, 'gamma': args.gamma}
-    scheduler_class = lrs.MultiStepLR
+    if args.decay_type == 'step':
+        scheduler_class = lrs.StepLR
+        kwargs_scheduler = {
+            'step_size': args.lr_decay,
+            'gamma': args.gamma
+        }
+    elif args.decay_type.startswith('step'):
+        milestones = args.decay_type.split('_')
+        milestones.pop(0)
+        milestones = list(map(lambda x: int(x), milestones))
+        scheduler_class = lrs.MultiStepLR
+        kwargs_scheduler = {
+            'milestones': milestones,
+            'gamma': args.gamma
+        }
+    else:
+        # Fallback or error if you have other decay types
+        raise ValueError(f'Unknown decay_type: {args.decay_type}')
+    # --- END: FIX for args.decay ---
 
     class CustomOptimizer(optimizer_class):
         def __init__(self, *args, **kwargs):
@@ -252,7 +274,11 @@ def make_optimizer(args, target):
             self.scheduler.step()
 
         def get_lr(self):
-            return self.scheduler.get_lr()[0]
+            # PyTorch 1.4.0 and newer compatibility
+            if hasattr(self.scheduler, 'get_last_lr'):
+                return self.scheduler.get_last_lr()[0]
+            else:
+                return self.scheduler.get_lr()[0]
 
         def get_last_epoch(self):
             return self.scheduler.last_epoch
@@ -260,3 +286,5 @@ def make_optimizer(args, target):
     optimizer = CustomOptimizer(trainable, **kwargs_optimizer)
     optimizer._register_scheduler(scheduler_class, **kwargs_scheduler)
     return optimizer
+
+print("✅ Overwrote /content/EDSR-PyTorch/src/utility.py with all fixes.")
