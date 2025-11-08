@@ -6,7 +6,7 @@ parser = argparse.ArgumentParser(description='EDSR and MDSR')
 parser.add_argument('--debug', action='store_true',
                     help='Enables debug mode')
 parser.add_argument('--template', default='.',
-                    help='You can set various templates in option.py')
+                    help='You can set various templates in template.py')
 
 # Hardware specifications
 parser.add_argument('--n_threads', type=int, default=6,
@@ -21,7 +21,7 @@ parser.add_argument('--seed', type=int, default=1,
 # Data specifications
 parser.add_argument('--dir_data', type=str, default='../../../dataset',
                     help='dataset directory')
-parser.add_argument('--dir_demo', type=str, default='../test',
+parser.add_argument('--dir_demo', type=str, default='../demo',
                     help='demo image directory')
 parser.add_argument('--data_train', type=str, default='DIV2K',
                     help='train dataset name')
@@ -50,7 +50,7 @@ parser.add_argument('--model', default='EDSR',
 
 parser.add_argument('--act', type=str, default='relu',
                     help='activation function')
-parser.add_argument('--pre_train', type=str, default='',
+parser.add_argument('--pre_train', type=str, default='.',
                     help='pre-trained model directory')
 parser.add_argument('--extend', type=str, default='.',
                     help='pre-trained model directory')
@@ -61,32 +61,18 @@ parser.add_argument('--n_feats', type=int, default=64,
 parser.add_argument('--res_scale', type=float, default=1,
                     help='residual scaling')
 parser.add_argument('--shift_mean', default=True,
-                    help='subtract pixel mean from the input')
+                    help='subtract high-frequency mean')
 parser.add_argument('--dilation', action='store_true',
                     help='use dilated convolution')
 parser.add_argument('--precision', type=str, default='single',
                     choices=('single', 'half'),
                     help='FP precision for test (single | half)')
 
-# Option for Residual dense network (RDN)
-parser.add_argument('--G0', type=int, default=64,
-                    help='default number of filters. (Use in RDN)')
-parser.add_argument('--RDNkSize', type=int, default=3,
-                    help='default kernel size. (Use in RDN)')
-parser.add_argument('--RDNconfig', type=str, default='B',
-                    help='parameters config of RDN. (Use in RDN)')
-
-# Option for Residual channel attention network (RCAN)
-parser.add_argument('--n_resgroups', type=int, default=10,
-                    help='number of residual groups')
-parser.add_argument('--reduction', type=int, default=16,
-                    help='number of feature maps reduction')
-
 # Training specifications
 parser.add_argument('--reset', action='store_true',
                     help='reset the training')
 parser.add_argument('--test_every', type=int, default=1000,
-                    help='do test per every N batches')
+                    help='do test every N batches')
 parser.add_argument('--epochs', type=int, default=300,
                     help='number of epochs to train')
 parser.add_argument('--batch_size', type=int, default=16,
@@ -103,7 +89,9 @@ parser.add_argument('--gan_k', type=int, default=1,
 # Optimization specifications
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate')
-parser.add_argument('--decay', type=str, default='200',
+parser.add_argument('--lr_decay', type=int, default=200,
+                    help='learning rate decay per N epochs')
+parser.add_argument('--decay_type', type=str, default='step',
                     help='learning rate decay type')
 parser.add_argument('--gamma', type=float, default=0.5,
                     help='learning rate decay factor for step decay')
@@ -112,8 +100,10 @@ parser.add_argument('--optimizer', default='ADAM',
                     help='optimizer to use (SGD | ADAM | RMSprop)')
 parser.add_argument('--momentum', type=float, default=0.9,
                     help='SGD momentum')
-parser.add_argument('--betas', type=tuple, default=(0.9, 0.999),
-                    help='ADAM beta')
+parser.add_argument('--beta1', type=float, default=0.9,
+                    help='ADAM beta1')
+parser.add_argument('--beta2', type=float, default=0.999,
+                    help='ADAM beta2')
 parser.add_argument('--epsilon', type=float, default=1e-8,
                     help='ADAM epsilon for numerical stability')
 parser.add_argument('--weight_decay', type=float, default=0,
@@ -124,24 +114,35 @@ parser.add_argument('--gclip', type=float, default=0,
 # Loss specifications
 parser.add_argument('--loss', type=str, default='1*L1',
                     help='loss function configuration')
-parser.add_argument('--skip_threshold', type=float, default='1e8',
-                    help='skipping batch that has large error')
+parser.add_argument('--skip_threshold', type=float, default='1e6',
+                    help='skipping batch that has large loss')
 
 # Log specifications
 parser.add_argument('--save', type=str, default='test',
                     help='file name to save')
-parser.add_argument('--load', type=str, default='',
+parser.add_argument('--load', type=str, default='.',
                     help='file name to load')
 parser.add_argument('--resume', type=int, default=0,
                     help='resume from specific checkpoint')
 parser.add_argument('--save_models', action='store_true',
                     help='save all intermediate models')
 parser.add_argument('--print_every', type=int, default=100,
-                    help='how many batches to wait before logging training status')
+                    help='how many batches to wait before logging')
 parser.add_argument('--save_results', action='store_true',
                     help='save output results')
 parser.add_argument('--save_gt', action='store_true',
                     help='save low-resolution and high-resolution images together')
+
+# --- START: Our Custom GSE Arguments ---
+parser.add_argument('--use_gse', action='store_true',
+                    help='Use Geometric Self-Ensemble for interlayer')
+parser.add_argument('--gse_median', action='store_true',
+                    help='Use median for GSE aggregation (default is mean)')
+parser.add_argument('--gse_freq', type=int, default=1,
+                    help='Apply GSE every N layers (default: 1=all)')
+parser.add_argument('--gse_scale_factor', type=float, default=1.0,
+                    help='Scale factor for GSE guidance (lambda)')
+# --- END: Our Custom GSE Arguments ---
 
 args = parser.parse_args()
 template.set_template(args)
@@ -158,4 +159,3 @@ for arg in vars(args):
         vars(args)[arg] = True
     elif vars(args)[arg] == 'False':
         vars(args)[arg] = False
-
